@@ -1,14 +1,12 @@
 from dotenv import load_dotenv
 import os
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext
+from telegram.ext import Application
 import ccxt
 from ret_db import get_trade_parameters
 import asyncio
-from df_maker import create_df_async
+from df_maker import create_df
 import sys
-
 
 
 load_dotenv()
@@ -29,13 +27,9 @@ logger = logging.getLogger(__name__)
 LIMIT = 500
 RISK_PERCENTAGE = 0.005
 
-async def set_max_leverage(exchange, symbol, coin):
-    """
-    Fetch the maximum leverage and set it for the given symbol.
-    """
-    available_tiers = await exchange.fetch_leverage_tiers(symbols=[symbol])
-    max_lev = int(available_tiers[f'{coin}/USDT:USDT'][0]['maxLeverage'])
-    return max_lev
+trade_params = []
+is_params_updated = False
+bot_instance = None
 
 
 def get_rounding_values(symbol):
@@ -66,18 +60,17 @@ def get_rounding_values(symbol):
     }
 
     round_decimal_price = round_decimal_price_map.get(
-        symbol, 2)  # Default to 2 if symbol not found
+        symbol, 2)
     round_decimal_pos = round_decimal_pos_map.get(
-        symbol, 2)     # Default to 2 if symbol not found
+        symbol, 2)
 
     return round_decimal_price, round_decimal_pos
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a message with two inline buttons attached."""
 
-async def send_signal_to_channel(context, message):
+async def send_signal_to_channel(message):
+    global bot_instance
     try:
-        await context.bot.send_message(chat_id=channel_id, text=message)
+        await bot_instance.send_message(chat_id=channel_id, text=message)
     except Exception as e:
         logger.error(f"Error sending signal message: {e}")
 
@@ -97,70 +90,92 @@ def calculate_order_details(entry_price, atr, symbol, direction, tp_multiplier, 
     return sl, tp
 
 
-async def trade_logic(context, exchange, symbol, timeframe, tp_m, sl_m):
-    """
-    The core trading logic for a symbol.
-    """
+async def periodic_trade_logic(exchange):
+    global trade_params
+    while True:
+        if trade_params:
+            for param in trade_params:
+                await trade_logic(exchange=exchange, symbol=param['symbol'], timeframe=param['timeframe'], tp_m=param['tp_m'], sl_m=param['sl_m'])
+        await asyncio.sleep(1)
+
+
+async def daily_update_trade_parameters():
+    global trade_params, is_params_updated
     while True:
         try:
-            df = await create_df_async(exchange=exchange, symbol=symbol, time_frame=timeframe, limit=LIMIT)
-
-            long_signal = df['long'].iloc[-2]
-            short_signal = df['short'].iloc[-2]
-
-            if long_signal or short_signal:
-                max_lev = await set_max_leverage(exchange, symbol, coin=symbol[:-4])
-                entry_price = df['Open'].iloc[-1]
-                atr = df['ATR'].iloc[-2]
-                direction = 'long' if long_signal else 'short'
-                _, sl, tp = calculate_order_details(entry_price, atr, symbol, direction, tp_m, sl_m)
-                
-                # Send signal to channel
-                signal_message = (
-    f"🔔 {'📈 LONG' if long_signal else '📉 SHORT'} Signal for {symbol} 🔔\n"
-    f"🎯 Entry Price: {entry_price}\n"
-    f"🛑 Stop Loss (SL): {sl}\n"
-    f"✅ Take Profit (TP): {tp}\n"
-    f"⚖️ Max Leverage: {max_lev}x\n"
-    f"⚠️ Risk Warning: Only risk 0.5% of your equity per trade.\n"
-    f"🔄 Trade Safely!"
-)
-                await send_signal_to_channel(context, signal_message)
-
-            await asyncio.sleep(1)
-
-        except ccxt.NetworkError as e:
-            logging.error(f'NetworkError: {str(e)}')
-            await asyncio.sleep(60)
+            trade_params = get_trade_parameters()
+            is_params_updated = True
+            logger.info("Trade parameters updated.")
         except Exception as e:
-            logging.error(f'An unexpected error occurred: {str(e)}')
-            sys.exit()
+            logger.error(f"Error updating trade parameters: {e}")
 
-async def signal_checking_job(context: CallbackContext):
-    exchange = ccxt.binanceusdm({
-        "enableRateLimit": True,
-    })
-    trade_params = get_trade_parameters()
+        await asyncio.sleep(86400)
 
-    if not trade_params:
-        logger.info("No trading today, trade parameters are empty.")
-        return  # Skip until the next scheduled job
 
-    tasks = [trade_logic(context.bot, exchange, param['symbol'], param['timeframe'],
-                         param['tp_m'], param['sl_m']) for param in trade_params]
-    await asyncio.gather(*tasks)
+async def trade_logic(exchange, symbol, timeframe, tp_m, sl_m):
+    global trade_params, is_params_updated
+    logger.info(f"Executing trade logic for {symbol} on {timeframe}.")
 
-def main() -> None:
+    try:
+        df = create_df(exchange=exchange, symbol=symbol,
+                       time_frame=timeframe, limit=LIMIT)
+        long_signal = df['long'].iloc[-2]
+        short_signal = df['short'].iloc[-2]
+
+        if long_signal or short_signal:
+            entry_price = df['Open'].iloc[-1]
+            atr = df['ATR'].iloc[-2]
+            direction = 'long' if long_signal else 'short'
+            sl, tp = calculate_order_details(
+                entry_price, atr, symbol, direction, tp_m, sl_m)
+
+            # Send signal to channel
+            signal_message = (
+                f"🔔 {'📈 LONG' if long_signal else '📉 SHORT'} Signal for {symbol} on {timeframe} 🔔\n"
+                f"🎯 Entry Price: {entry_price}\n"
+                f"🛑 Stop Loss (SL): {sl}\n"
+                f"✅ Take Profit (TP): {tp}\n"
+                f"⚖️ Max Leverage: use maximum leverage possible!\n"
+                f"⚠️ Risk Warning: Only risk 0.5% of your equity per trade.\n"
+                f"🔄 Trade Safely!"
+            )
+            await send_signal_to_channel(signal_message)
+
+        await asyncio.sleep(1)
+
+    except ccxt.NetworkError as e:
+        logging.error(f'NetworkError: {str(e)}')
+        await asyncio.sleep(60)
+    except Exception as e:
+        logging.error(f'An unexpected error occurred: {str(e)}')
+        sys.exit()
+
+
+def main():
+    global bot_instance
+    # Initialize the Telegram bot application
     application = Application.builder().token(tg_token).build()
 
-    # Add the command and message handlers
-    application.add_handler(CommandHandler("start", start))
+    bot_instance = application.bot
 
-    # Create a job queue and start the job
-    job_queue = application.job_queue
-    job_queue.run_repeating(signal_checking_job, interval=86400)  # Run every day
+    exchange = ccxt.binanceusdm({"enableRateLimit": True})
 
-    application.run_polling()
+    # Create and start the async event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Start the periodic trade logic and daily update tasks
+    loop.create_task(periodic_trade_logic(exchange=exchange))
+    loop.create_task(daily_update_trade_parameters())
+
+    loop.create_task(application.run_polling())
+
+    try:
+        logger.info("Bot is running.")
+        loop.run_forever()
+    finally:
+        loop.close()
+
 
 if __name__ == "__main__":
     main()

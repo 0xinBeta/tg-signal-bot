@@ -2,7 +2,7 @@ import pandas as pd
 from finta import TA
 from ta.trend import adx
 
-async def create_df_async(exchange, symbol, time_frame, limit):
+def create_df(exchange, symbol, time_frame, limit):
     """
     Generates a pandas DataFrame with technical indicators and trading opportunities based on a specific set of conditions.
 
@@ -15,7 +15,7 @@ async def create_df_async(exchange, symbol, time_frame, limit):
     Returns:
         df: (pd.DataFrame) DataFrame with calculated technical indicators and identified long/short trading opportunities
     """
-    candles = await exchange.fetch_ohlcv(symbol=symbol, timeframe=time_frame,
+    candles = exchange.fetch_ohlcv(symbol=symbol, timeframe=time_frame,
                                    limit=limit)
     df = pd.DataFrame(candles, columns=[
         'DateTime',
