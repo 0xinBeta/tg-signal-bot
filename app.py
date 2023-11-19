@@ -27,8 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 LIMIT = 500
-RISK_PERCENTAGE = 0.01
-CALLBACK_RATE = 0.1
+RISK_PERCENTAGE = 0.005
 
 async def set_max_leverage(exchange, symbol, coin):
     """
@@ -118,7 +117,7 @@ async def trade_logic(context, exchange, symbol, timeframe, tp_m, sl_m):
                 
                 # Send signal to channel
                 signal_message = (
-    f"🔔 {'📈 Long' if long_signal else '📉 Short'} Signal for {symbol} 🔔\n"
+    f"🔔 {'📈 LONG' if long_signal else '📉 SHORT'} Signal for {symbol} 🔔\n"
     f"🎯 Entry Price: {entry_price}\n"
     f"🛑 Stop Loss (SL): {sl}\n"
     f"✅ Take Profit (TP): {tp}\n"
@@ -159,7 +158,7 @@ def main() -> None:
 
     # Create a job queue and start the job
     job_queue = application.job_queue
-    job_queue.run_repeating(signal_checking_job, interval=3600)  # Run every hour
+    job_queue.run_repeating(signal_checking_job, interval=86400)  # Run every day
 
     application.run_polling()
 
