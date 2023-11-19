@@ -6,3 +6,4 @@ pandas
 ta
 numba==0.56.4
 numpy
+psycopg2-binary
