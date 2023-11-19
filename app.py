@@ -114,8 +114,6 @@ async def daily_update_trade_parameters():
 
 async def trade_logic(exchange, symbol, timeframe, tp_m, sl_m):
     global trade_params, is_params_updated
-    logger.info(f"Executing trade logic for {symbol} on {timeframe}.")
-
     try:
         df = create_df(exchange=exchange, symbol=symbol,
                        time_frame=timeframe, limit=LIMIT)
