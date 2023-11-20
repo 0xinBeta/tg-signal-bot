@@ -68,3 +68,24 @@ def get_filtered_backtest_results():
 
     return results
 
+
+def insert_signal(signal):
+    """Insert a new backtest result into the database."""
+    conn = connect_to_db()
+    cur = conn.cursor()
+    query = sql.SQL("""
+        INSERT INTO signals (signal_type, symbol, timeframe, entry_price, sl, tp)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """)
+    cur.execute(query, (
+        signal['signal_type'],
+        signal['symbol'],
+        signal['timeframe'],
+        signal['entry_price'],
+        signal['sl'],
+        signal['tp'],
+        signal['date_time']
+    ))
+    conn.commit()
+    cur.close()
+    conn.close()

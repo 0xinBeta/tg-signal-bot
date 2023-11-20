@@ -7,6 +7,7 @@ from ret_db import get_trade_parameters
 import asyncio
 from df_maker import create_df
 import sys
+from db_handlers import insert_signal
 
 
 load_dotenv()
@@ -137,6 +138,16 @@ async def trade_logic(exchange, symbol, timeframe, tp_m, sl_m):
                 direction = 'long' if long_signal else 'short'
                 sl, tp = calculate_order_details(
                     entry_price, atr, symbol, direction, tp_m, sl_m)
+                
+                signal = {
+                    'signal_type': direction,
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'entry_price': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'date_time': date_time
+                }
 
                 # Send signal to channel
                 signal_message = (
@@ -152,6 +163,11 @@ async def trade_logic(exchange, symbol, timeframe, tp_m, sl_m):
                 await send_signal_to_channel(signal_message)
                 # Update the last signal sent
                 last_signal_sent[symbol_timeframe_key] = current_signal
+
+                insert_signal(signal)
+
+
+
 
         await asyncio.sleep(1)
 
