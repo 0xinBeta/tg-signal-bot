@@ -30,6 +30,8 @@ RISK_PERCENTAGE = 0.005
 trade_params = []
 is_params_updated = False
 bot_instance = None
+last_signal_sent = {}
+
 
 
 def get_rounding_values(symbol):
@@ -113,31 +115,43 @@ async def daily_update_trade_parameters():
 
 
 async def trade_logic(exchange, symbol, timeframe, tp_m, sl_m):
-    global trade_params, is_params_updated
+    global trade_params, is_params_updated, last_signal_sent
     try:
         df = create_df(exchange=exchange, symbol=symbol,
                        time_frame=timeframe, limit=LIMIT)
         long_signal = df['long'].iloc[-2]
         short_signal = df['short'].iloc[-2]
+        date_time = df['DateTime'].iloc[-2]
 
-        if long_signal or short_signal:
-            entry_price = df['Open'].iloc[-1]
-            atr = df['ATR'].iloc[-2]
-            direction = 'long' if long_signal else 'short'
-            sl, tp = calculate_order_details(
-                entry_price, atr, symbol, direction, tp_m, sl_m)
+        # Construct a unique key for each symbol and timeframe
+        symbol_timeframe_key = f"{symbol}_{timeframe}_{date_time}"
 
-            # Send signal to channel
-            signal_message = (
-                f"🔔 {'📈 LONG' if long_signal else '📉 SHORT'} Signal for {symbol} on {timeframe} 🔔\n"
-                f"🎯 Entry Price: {entry_price}\n"
-                f"🛑 Stop Loss (SL): {sl}\n"
-                f"✅ Take Profit (TP): {tp}\n"
-                f"⚖️ Max Leverage: use maximum leverage possible!\n"
-                f"⚠️ Risk Warning: Only risk 0.5% of your equity per trade.\n"
-                f"🔄 Trade Safely!"
-            )
-            await send_signal_to_channel(signal_message)
+        # Check if the current signal is different from the last signal sent
+        current_signal = 'long' if long_signal else 'short' if short_signal else 'none'
+        last_signal = last_signal_sent.get(symbol_timeframe_key, 'none')
+
+        if current_signal != last_signal:
+            if long_signal or short_signal:
+                entry_price = df['Open'].iloc[-1]
+                atr = df['ATR'].iloc[-2]
+                direction = 'long' if long_signal else 'short'
+                sl, tp = calculate_order_details(
+                    entry_price, atr, symbol, direction, tp_m, sl_m)
+
+                # Send signal to channel
+                signal_message = (
+                    f"🔔 {'📈 LONG' if long_signal else '📉 SHORT'}🔔\n"
+                    f"🏁 Signal for {symbol} on {timeframe}\n"
+                    f"🎯 Entry Price: {entry_price}\n"
+                    f"🛑 Stop Loss (SL): {sl}\n"
+                    f"✅ Take Profit (TP): {tp}\n"
+                    f"⚖️ Max Leverage: use maximum leverage possible!\n"
+                    f"⚠️ Risk Warning: Only risk 0.5% of your equity per trade.\n"
+                    f"🔄 Trade Safely!"
+                )
+                await send_signal_to_channel(signal_message)
+                # Update the last signal sent
+                last_signal_sent[symbol_timeframe_key] = current_signal
 
         await asyncio.sleep(1)
 
