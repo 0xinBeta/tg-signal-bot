@@ -83,8 +83,7 @@ def insert_signal(signal):
         signal['timeframe'],
         signal['entry_price'],
         signal['sl'],
-        signal['tp'],
-        signal['date_time']
+        signal['tp']
     ))
     conn.commit()
     cur.close()
